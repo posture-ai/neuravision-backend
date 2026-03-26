@@ -39,7 +39,7 @@ The same process exposes a **WebSocket** server on **the same port** as HTTP (Up
 
 Example with `PORT=3001` in `.env`: `ws://192.168.1.10:3001`
 
-**Samsung `tvapp` LAN camera mode:** set `VITE_LAN_SIGNALING_WS` to that URL (phone and TV must reach this host). The phone page is a static HTML file in **[`pose-webview2/camera.html`](../pose-webview2/camera.html)** — host it separately; set **`VITE_LAN_PHONE_PAGE_BASE`** to that HTTP origin (see [`tvapp/README.md`](../tvapp/README.md)).
+**Samsung `tvapp` LAN camera mode:** set `VITE_LAN_SIGNALING_WS` to that URL (phone and TV must reach this host). The phone page is a static HTML file in **[`pose-webview2/index.html`](../pose-webview2/index.html)** — host it separately; set **`VITE_LAN_PHONE_PAGE_BASE`** to that HTTP origin (see [`tvapp/README.md`](../tvapp/README.md)).
 
 The relay supports:
 
