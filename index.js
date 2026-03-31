@@ -9,13 +9,27 @@ const { attachWebRtcSignaling } = require('./signaling/webrtc-signaling');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
 
-// Middleware
-app.use(cors({
-  origin: CORS_ORIGIN,
-  credentials: true
-}));
+// Support comma-separated list of allowed origins
+const rawOrigins = process.env.CORS_ORIGIN || '';
+const allowedOrigins = rawOrigins
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (server-to-server, curl, etc.)
+      if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS: origin "${origin}" not allowed`));
+      }
+    },
+    credentials: true
+  })
+);
 app.use(morgan('dev'));
 app.use(express.json());
 
@@ -23,7 +37,7 @@ app.use(express.json());
 app.use('/models', express.static(path.join(__dirname, 'models')));
 
 // Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
@@ -31,7 +45,7 @@ app.get('/health', (req, res) => {
 app.use('/api/characters', charactersRouter);
 
 // Error handling middleware
-app.use((err, req, res, next) => {
+app.use((err, _req, res, _next) => {
   console.error('Error:', err);
   res.status(500).json({ error: 'Internal server error', message: err.message });
 });
@@ -41,7 +55,10 @@ attachWebRtcSignaling(server);
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Backend server running on http://0.0.0.0:${PORT}`);
-  console.log(`WebRTC signaling WebSocket on ws://0.0.0.0:${PORT} (same port as HTTP)`);
-  console.log(`CORS enabled for origin: ${CORS_ORIGIN}`);
-  console.log(`Serving models from: ${path.join(__dirname, 'models')}`);
+  console.log(`WebRTC signaling WebSocket on ws://0.0.0.0:${PORT}`);
+  if (allowedOrigins.length > 0) {
+    console.log(`CORS allowed origins: ${allowedOrigins.join(', ')}`);
+  } else {
+    console.log('CORS: all origins allowed (CORS_ORIGIN not set)');
+  }
 });

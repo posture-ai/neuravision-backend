@@ -1,7 +1,8 @@
 /**
- * WebRTC signaling over WebSocket: peer-targeted relay plus LAN POC compatibility
- * (2 peers per room, broadcast offer/answer/ICE when `target` is omitted).
- * Attach to the same HTTP server as Express so HTTP and WS share one port.
+ * WebRTC signaling over WebSocket.
+ * Room-based relay: up to 2 peers per room.
+ * Broadcasts offer / answer / ICE candidates between peers.
+ * Attaches to the same HTTP server as Express (shared port).
  */
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
@@ -10,9 +11,10 @@ const { v4: uuidv4 } = require('uuid');
 const sessions = new Map();
 
 const MAX_SESSION_PEERS = 2;
-const MAX_MESSAGE_BYTES = 512 * 1024;
+const MAX_MESSAGE_BYTES = 512 * 1024; // 512 KB
+const HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
 
-const SIGNALING_TYPES = new Set(['offer', 'answer', 'candidate', 'ice-candidate']);
+const RELAY_TYPES = new Set(['offer', 'answer', 'candidate', 'ice-candidate']);
 
 /**
  * @param {import('ws')} ws
@@ -31,7 +33,7 @@ function send(ws, data) {
  */
 function broadcastToOthers(session, senderId, message) {
   for (const [peerId, peer] of session.peers) {
-    if (peerId !== senderId && peer.readyState === WebSocket.OPEN) {
+    if (peerId !== senderId) {
       send(peer, message);
     }
   }
@@ -47,8 +49,29 @@ function attachWebRtcSignaling(httpServer) {
     maxPayload: MAX_MESSAGE_BYTES
   });
 
+  // Heartbeat: terminate dead connections every 30s
+  const heartbeatTimer = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if (ws.isAlive === false) {
+        ws.terminate();
+        return;
+      }
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, HEARTBEAT_INTERVAL_MS);
+
+  wss.on('close', () => {
+    clearInterval(heartbeatTimer);
+  });
+
   wss.on('connection', (ws) => {
     const peerId = uuidv4();
+    ws.isAlive = true;
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
+
     /** @type {{ peers: Map<string, import('ws')> } | null} */
     let currentSession = null;
     /** @type {string | null} */
@@ -60,9 +83,7 @@ function attachWebRtcSignaling(httpServer) {
       let data;
       try {
         const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
-        if (buf.length > MAX_MESSAGE_BYTES) {
-          return;
-        }
+        if (buf.length > MAX_MESSAGE_BYTES) return;
         data = JSON.parse(buf.toString('utf8'));
       } catch {
         return;
@@ -70,10 +91,7 @@ function attachWebRtcSignaling(httpServer) {
 
       if (data.type === 'join') {
         const sessionId = data.sessionId || data.roomId;
-        if (typeof sessionId !== 'string' || !sessionId.trim()) {
-          return;
-        }
-        const role = typeof data.role === 'string' ? data.role : 'peer';
+        if (typeof sessionId !== 'string' || !sessionId.trim()) return;
 
         if (!sessions.has(sessionId)) {
           sessions.set(sessionId, { peers: new Map() });
@@ -81,11 +99,10 @@ function attachWebRtcSignaling(httpServer) {
         const session = sessions.get(sessionId);
 
         if (session.peers.size >= MAX_SESSION_PEERS) {
-          console.warn('[webrtc-signaling] Session full:', sessionId);
           send(ws, {
             type: 'error',
             code: 'SESSION_FULL',
-            message: 'LAN camera supports at most 2 peers per room'
+            message: 'Room supports at most 2 peers'
           });
           return;
         }
@@ -94,35 +111,28 @@ function attachWebRtcSignaling(httpServer) {
         currentSession = session;
         currentSessionId = sessionId;
 
-        console.log(`[webrtc-signaling] Peer ${peerId} joined ${sessionId} as ${role}`);
+        console.log(`[signaling] ${peerId} joined room "${sessionId}" (${session.peers.size}/2)`);
 
         send(ws, { type: 'joined', sessionId, peerId });
         broadcastToOthers(session, peerId, { type: 'peer-joined', peerId });
         return;
       }
 
-      if (SIGNALING_TYPES.has(data.type)) {
-        if (!currentSession) {
-          return;
-        }
+      if (RELAY_TYPES.has(data.type)) {
+        if (!currentSession) return;
 
         const target = data.target;
-        if (target !== undefined && target !== null && target !== '') {
-          const targetPeer = currentSession.peers.get(String(target));
-          if (targetPeer && targetPeer.readyState === WebSocket.OPEN) {
-            send(targetPeer, { ...data, from: peerId });
-          }
+        if (target != null && target !== '') {
+          const targetWs = currentSession.peers.get(String(target));
+          if (targetWs) send(targetWs, { ...data, from: peerId });
           return;
         }
 
+        // Broadcast to the other peer (2-peer room)
         if (currentSession.peers.size === MAX_SESSION_PEERS) {
           broadcastToOthers(currentSession, peerId, data);
-        } else {
-          console.warn(
-            '[webrtc-signaling] Relay without target needs 2 peers in session; have',
-            currentSession.peers.size
-          );
         }
+        return;
       }
     });
 
@@ -134,7 +144,11 @@ function attachWebRtcSignaling(httpServer) {
           sessions.delete(currentSessionId);
         }
       }
-      console.log(`[webrtc-signaling] Peer ${peerId} disconnected`);
+      console.log(`[signaling] ${peerId} disconnected`);
+    });
+
+    ws.on('error', (err) => {
+      console.error(`[signaling] ${peerId} error:`, err.message);
     });
   });
 
