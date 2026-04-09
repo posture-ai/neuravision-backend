@@ -6,6 +6,7 @@
  */
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
+const { getIceServers } = require('./ice-servers');
 
 /** @type {Map<string, { peers: Map<string, import('ws')> }>} */
 const sessions = new Map();
@@ -114,6 +115,7 @@ function attachWebRtcSignaling(httpServer) {
         console.log(`[signaling] ${peerId} joined room "${sessionId}" (${session.peers.size}/2)`);
 
         send(ws, { type: 'joined', sessionId, peerId });
+        getIceServers().then((iceServers) => send(ws, { type: 'ice-config', iceServers }));
         broadcastToOthers(session, peerId, { type: 'peer-joined', peerId });
         return;
       }
