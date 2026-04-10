@@ -22,6 +22,8 @@ const CACHE_TTL_MS = 4 * 60 * 1000; // 4 minutes
 
 let cached = null;
 let cachedAt = 0;
+/** @type {Promise<Array> | null} — deduplicates concurrent fetches */
+let inflight = null;
 
 /**
  * @returns {Promise<Array<{urls: string|string[], username?: string, credential?: string}>>}
@@ -39,6 +41,11 @@ async function getIceServers() {
     return cached;
   }
 
+  if (inflight) {
+    return inflight;
+  }
+
+  inflight = (async () => {
   try {
     const kvsClient = new KinesisVideoClient({ region });
 
@@ -89,13 +96,18 @@ async function getIceServers() {
     }
 
     cached = iceServers;
-    cachedAt = now;
+    cachedAt = Date.now();
     console.log(`[ice-servers] Fetched ${iceServers.length} ICE servers from KVS`);
     return iceServers;
   } catch (err) {
     console.error('[ice-servers] KVS fetch failed, using fallback STUN:', err.message);
     return FALLBACK_ICE_SERVERS;
+  } finally {
+    inflight = null;
   }
+  })();
+
+  return inflight;
 }
 
 module.exports = { getIceServers };

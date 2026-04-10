@@ -6,6 +6,7 @@ const morgan = require('morgan');
 const path = require('path');
 const charactersRouter = require('./routes/characters');
 const { attachWebRtcSignaling } = require('./signaling/webrtc-signaling');
+const { getIceServers } = require('./signaling/ice-servers');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -37,8 +38,13 @@ app.use(express.json());
 app.use('/models', express.static(path.join(__dirname, 'models')));
 
 // Health check endpoint
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+app.get('/health', async (_req, res) => {
+  const iceServers = await getIceServers();
+  const hasTurn = iceServers.some((s) => {
+    const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+    return urls.some((u) => u.startsWith('turn:'));
+  });
+  res.json({ status: 'ok', hasTurn, iceServerCount: iceServers.length, timestamp: new Date().toISOString() });
 });
 
 // API routes
@@ -61,4 +67,14 @@ server.listen(PORT, '0.0.0.0', () => {
   } else {
     console.log('CORS: all origins allowed (CORS_ORIGIN not set)');
   }
+  // Pre-warm ICE server cache so the first session doesn't wait for KVS
+  getIceServers().then((servers) => {
+    const hasTurn = servers.some((s) => {
+      const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+      return urls.some((u) => u.startsWith('turn:'));
+    });
+    console.log(`[ice-servers] Pre-warmed: ${servers.length} server(s), TURN=${hasTurn}`);
+  }).catch((err) => {
+    console.error('[ice-servers] Pre-warm failed:', err.message);
+  });
 });
