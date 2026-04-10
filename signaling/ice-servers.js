@@ -55,13 +55,13 @@ async function getIceServers() {
     );
     const channelARN = describeRes.ChannelInfo.ChannelARN;
 
-    // 2. Get HTTPS endpoint for the signaling channel
+    // 2. Get HTTPS endpoint for the signaling channel (VIEWER role is required for GetIceServerConfig)
     const endpointRes = await kvsClient.send(
       new GetSignalingChannelEndpointCommand({
         ChannelARN: channelARN,
         SingleMasterChannelEndpointConfiguration: {
           Protocols: ['HTTPS'],
-          Role: 'MASTER'
+          Role: 'VIEWER'
         }
       })
     );
