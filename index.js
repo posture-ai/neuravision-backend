@@ -2,6 +2,7 @@ require('dotenv').config();
 const http = require('http');
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 const morgan = require('morgan');
 const path = require('path');
 const charactersRouter = require('./routes/characters');
@@ -33,6 +34,10 @@ app.use(
 );
 app.use(morgan('dev'));
 app.use(express.json());
+
+// gzip transport compression. Skips already-compressed payloads (KTX2 textures
+// inside the GLB don't recompress); the Meshopt vertex/animation streams do.
+app.use(compression({ threshold: 1024 }));
 
 // Serve static model files
 app.use('/models', express.static(path.join(__dirname, 'models')));

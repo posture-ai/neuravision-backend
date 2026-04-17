@@ -9,11 +9,13 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
+    "optimize-models": "node scripts/optimize-models.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
     "@aws-sdk/client-kinesis-video": "^3.1027.0",
     "@aws-sdk/client-kinesis-video-signaling": "^3.1027.0",
+    "compression": "^1.8.1",
     "cors": "^2.8.6",
     "dotenv": "^17.2.4",
     "express": "^5.2.1",
